@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR 隔空传文件</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+.header { text-align: center; padding: 20px; background: #1e293b; border-bottom: 1px solid #334155; }
+.header h1 { font-size: 1.5rem; color: #38bdf8; }
+.tabs { display: flex; justify-content: center; gap: 8px; margin: 16px 0; }
+.tab-btn { padding: 10px 32px; border: 2px solid #334155; background: transparent; color: #94a3b8; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: all .2s; }
+.tab-btn.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; }
+.tab-btn:hover:not(.active) { border-color: #38bdf8; color: #e2e8f0; }
+.panel { max-width: 900px; margin: 0 auto; padding: 0 20px 40px; display: none; }
+.panel.active { display: block; }
+/* Upload Zone */
+.upload-zone { border: 3px dashed #334155; border-radius: 16px; padding: 60px 20px; text-align: center; cursor: pointer; transition: all .3s; margin-bottom: 20px; }
+.upload-zone:hover, .upload-zone.dragover { border-color: #38bdf8; background: rgba(56,189,248,0.05); }
+.upload-zone .icon { font-size: 3rem; margin-bottom: 12px; }
+.upload-zone p { color: #94a3b8; font-size: 1rem; }
+.upload-zone .hint { font-size: .85rem; color: #64748b; margin-top: 8px; }
+/* File Info */
+.file-info { background: #1e293b; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: none; }
+.file-info .name { font-weight: 600; color: #38bdf8; word-break: break-all; }
+.file-info .size { color: #94a3b8; font-size: .9rem; margin-top: 4px; }
+.file-info .chunks { color: #64748b; font-size: .85rem; margin-top: 2px; }
+/* Settings */
+.settings { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.settings label { color: #94a3b8; font-size: .9rem; }
+.settings input, .settings select { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 8px 12px; border-radius: 8px; font-size: .9rem; }
+.settings input { width: 100px; }
+/* Buttons */
+.btn { padding: 10px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: .95rem; font-weight: 500; transition: all .2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: #38bdf8; color: #0f172a; }
+.btn-primary:hover:not(:disabled) { background: #7dd3fc; }
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover:not(:disabled) { background: #475569; }
+.btn-success { background: #22c55e; color: #0f172a; }
+.btn-success:hover:not(:disabled) { background: #4ade80; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #f87171; }
+.btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+/* QR Gallery */
+.qr-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.qr-card { background: #1e293b; border-radius: 12px; padding: 12px; text-align: center; transition: transform .2s; }
+.qr-card:hover { transform: scale(1.02); }
+.qr-card img { width: 100%; border-radius: 8px; background: #fff; padding: 8px; }
+.qr-card .index { color: #38bdf8; font-weight: 600; margin-top: 8px; font-size: .85rem; }
+.qr-card .dl-btn { margin-top: 8px; font-size: .8rem; padding: 4px 12px; background: #334155; color: #e2e8f0; border: none; border-radius: 4px; cursor: pointer; }
+.qr-card .dl-btn:hover { background: #475569; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
+.pagination span { color: #94a3b8; font-size: .9rem; }
+/* Receiver - Camera */
+.camera-container { position: relative; border-radius: 16px; overflow: hidden; background: #000; margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.camera-container video, .camera-container canvas { width: 100%; display: block; }
+.camera-container canvas { display: none; }
+.scan-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60%; aspect-ratio: 1; border: 3px solid #38bdf8; border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.4); pointer-events: none; }
+.scan-flash { position: absolute; inset: 0; background: rgba(56,189,248,0.3); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.scan-flash.active { opacity: 1; }
+/* Zoom Control */
+.zoom-control { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px; padding: 10px 16px; background: #1e293b; border-radius: 12px; }
+.zoom-control input[type="range"] { width: 120px; accent-color: #38bdf8; }
+.zoom-btn { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #475569; background: transparent; color: #e2e8f0; font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; line-height: 1; }
+.zoom-btn:hover { border-color: #38bdf8; color: #38bdf8; }
+.zoom-reset { width: auto; padding: 0 12px; border-radius: 16px; font-size: .8rem; }
+.zoom-value { color: #94a3b8; font-size: .85rem; min-width: 40px; text-align: center; }
+/* Progress */
+.progress-section { margin-bottom: 20px; }
+.progress-bar-container { background: #1e293b; border-radius: 12px; height: 24px; overflow: hidden; margin-bottom: 8px; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #38bdf8, #22c55e); border-radius: 12px; transition: width .3s; width: 0; }
+.progress-text { color: #94a3b8; font-size: .85rem; text-align: center; }
+/* Chunk List */
+.chunk-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 20px; }
+.chunk-dot { width: 28px; height: 28px; border-radius: 6px; background: #334155; display: flex; align-items: center; justify-content: center; font-size: .7rem; color: #64748b; transition: all .3s; }
+.chunk-dot.received { background: #22c55e; color: #064e3b; font-weight: 700; }
+/* Reconstructed File */
+.reconstructed { background: #1e293b; border-radius: 12px; padding: 20px; text-align: center; display: none; }
+.reconstructed .check { font-size: 2.5rem; color: #22c55e; }
+.reconstructed .fname { color: #38bdf8; font-weight: 600; margin: 8px 0; word-break: break-all; }
+.reconstructed .fsize { color: #94a3b8; font-size: .9rem; margin-bottom: 16px; }
+/* Manual Upload */
+.manual-section { margin-top: 20px; padding-top: 20px; border-top: 1px solid #334155; }
+.manual-section h3 { color: #94a3b8; font-size: .95rem; margin-bottom: 12px; }
+.manual-input { display: flex; gap: 10px; flex-wrap: wrap; }
+/* Status Message */
+.status-msg { padding: 10px 16px; border-radius: 8px; margin-bottom: 16px; font-size: .9rem; display: none; }
+.status-msg.success { display: block; background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+.status-msg.error { display: block; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.status-msg.info { display: block; background: rgba(56,189,248,0.15); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3); }
+/* Preview Modal */
+.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; display: flex; align-items: center; justify-content: center; flex-direction: column; }
+.preview-overlay .close-btn { position: absolute; top: 16px; right: 24px; color: #94a3b8; font-size: 2rem; cursor: pointer; background: none; border: none; z-index: 10; line-height: 1; }
+.preview-overlay .close-btn:hover { color: #fff; }
+.preview-overlay .preview-img { max-width: 90vw; max-height: 70vh; border-radius: 12px; background: #fff; padding: 16px; }
+.preview-overlay .preview-info { color: #e2e8f0; font-size: 1.1rem; margin: 12px 0 8px; font-weight: 600; }
+.preview-overlay .preview-nav { display: flex; gap: 20px; align-items: center; }
+.preview-overlay .preview-nav button { width: 48px; height: 48px; border-radius: 50%; border: 2px solid #475569; background: rgba(30,41,59,0.8); color: #e2e8f0; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .2s; }
+.preview-overlay .preview-nav button:hover { border-color: #38bdf8; color: #38bdf8; background: rgba(56,189,248,0.15); }
+.preview-overlay .preview-nav button:disabled { opacity: 0.25; cursor: not-allowed; }
+.preview-overlay .preview-nav span { color: #94a3b8; font-size: .9rem; min-width: 80px; text-align: center; }
+.auto-play-btn { margin-top: 10px; padding: 6px 18px; border-radius: 20px; border: 2px solid #475569; background: rgba(30,41,59,0.8); color: #e2e8f0; font-size: .85rem; cursor: pointer; transition: all .2s; }
+.auto-play-btn:hover { border-color: #38bdf8; color: #38bdf8; background: rgba(56,189,248,0.15); }
+.auto-play-btn.playing { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.15); }
+.speed-selector { display: flex; gap: 6px; margin-top: 8px; }
+.speed-selector button { padding: 4px 14px; border-radius: 14px; border: 1px solid #475569; background: rgba(30,41,59,0.8); color: #94a3b8; font-size: .75rem; cursor: pointer; transition: all .2s; }
+.speed-selector button.active { border-color: #38bdf8; color: #38bdf8; background: rgba(56,189,248,0.15); }
+.speed-selector button:hover:not(.active) { border-color: #64748b; color: #e2e8f0; }
+/* Hidden */
+.hidden { display: none !important; }
+/* Responsive */
+@media (max-width: 600px) {
+  .qr-gallery { grid-template-columns: repeat(2, 1fr); }
+  .tabs { gap: 4px; }
+  .tab-btn { padding: 8px 20px; font-size: .9rem; }
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>QR 隔空传文件</h1>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="send" onclick="switchTab('send')">发送文件</button>
+    <button class="tab-btn" data-tab="receive" onclick="switchTab('receive')">接收文件</button>
+  </div>
+</div>
+
+<!-- Send Panel -->
+<div class="panel active" id="panel-send">
+  <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+    <div class="icon">📁</div>
+    <p>点击上传或拖拽文件到此处</p>
+    <p class="hint">文件将被分块生成多个二维码</p>
+  </div>
+  <input type="file" id="file-input" class="hidden" onchange="handleFileSelect(event)">
+
+  <div class="file-info" id="file-info">
+    <div class="name" id="file-name"></div>
+    <div class="size" id="file-size"></div>
+    <div class="chunks" id="file-chunks"></div>
+  </div>
+
+  <div class="settings">
+    <label>每块大小 (字节):</label>
+    <input type="number" id="chunk-size" value="1500" min="100" max="2500" step="100">
+    <label>纠错级别:</label>
+    <select id="ec-level">
+      <option value="L">L - 低 (容量最大)</option>
+      <option value="M" selected>M - 中</option>
+      <option value="Q">Q - 较高</option>
+      <option value="H">H - 高 (最可靠)</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" id="compress-toggle" checked onchange="onCompressToggle()">
+      压缩传输
+    </label>
+  </div>
+
+  <div class="btn-group">
+    <button class="btn btn-primary" id="btn-generate" onclick="generateQRCodes()" disabled>生成二维码</button>
+    <button class="btn btn-secondary hidden" id="btn-download-all" onclick="downloadAllQR()">批量下载全部二维码</button>
+    <button class="btn btn-secondary hidden" id="btn-reset" onclick="resetSender()">重新选择</button>
+  </div>
+
+  <div class="status-msg" id="send-status"></div>
+
+  <div class="pagination hidden" id="pagination">
+    <button class="btn btn-secondary" id="btn-prev" onclick="changePage(-1)">上一页</button>
+    <span id="page-info"></span>
+    <button class="btn btn-secondary" id="btn-next" onclick="changePage(1)">下一页</button>
+  </div>
+
+  <div class="qr-gallery" id="qr-gallery"></div>
+
+  <button class="btn btn-secondary hidden" id="btn-preview" onclick="openPreview()" style="margin-top: 8px;">预览模式 - 放大切换</button>
+</div>
+
+<!-- Preview Modal -->
+<div class="preview-overlay hidden" id="preview-overlay">
+  <button class="close-btn" onclick="closePreview()">&times;</button>
+  <img class="preview-img" id="preview-img" alt="QR Code Preview">
+  <div class="preview-info" id="preview-info"></div>
+  <div class="preview-nav">
+    <button id="prev-preview-btn" onclick="navigatePreview(-1)">&#8249;</button>
+    <span id="preview-index"></span>
+    <button id="next-preview-btn" onclick="navigatePreview(1)">&#8250;</button>
+  </div>
+  <button class="auto-play-btn" id="auto-play-btn" onclick="toggleAutoPlay()" title="自动切换">▶ 自动</button>
+  <div class="speed-selector">
+    <button class="active" data-speed="600" onclick="setPreviewSpeed(this)">快 0.6s</button>
+    <button data-speed="1000" onclick="setPreviewSpeed(this)">中 1s</button>
+    <button data-speed="2000" onclick="setPreviewSpeed(this)">慢 2s</button>
+  </div>
+</div>
+
+<!-- Receive Panel -->
+<div class="panel" id="panel-receive">
+  <div class="btn-group">
+    <button class="btn btn-primary" id="btn-start-scan" onclick="startScanning()">开始扫描</button>
+    <button class="btn btn-danger hidden" id="btn-stop-scan" onclick="stopScanning()">停止扫描</button>
+  </div>
+
+  <div class="status-msg" id="receive-status"></div>
+
+  <div class="camera-container" id="camera-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="scan-canvas"></canvas>
+    <div class="scan-overlay"></div>
+    <div class="scan-flash" id="scan-flash"></div>
+  </div>
+
+  <div class="zoom-control hidden" id="zoom-control">
+    <button class="zoom-btn" onclick="adjustZoom(-0.2)">-</button>
+    <input type="range" id="zoom-slider" min="1" max="5" step="0.1" value="1" oninput="onZoomSlider(this.value)">
+    <button class="zoom-btn" onclick="adjustZoom(0.2)">+</button>
+    <span class="zoom-value" id="zoom-value">1.0x</span>
+    <button class="zoom-btn zoom-reset" onclick="resetZoom()">重置</button>
+  </div>
+
+  <div class="progress-section">
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <div class="progress-text" id="progress-text">等待扫描...</div>
+  </div>
+
+  <div class="chunk-list" id="chunk-list"></div>
+
+  <div class="reconstructed" id="reconstructed">
+    <div class="check">✅</div>
+    <div class="fname" id="recv-filename"></div>
+    <div class="fsize" id="recv-filesize"></div>
+    <button class="btn btn-success" onclick="downloadReconstructed()">下载还原的文件</button>
+  </div>
+
+  <div class="manual-section">
+    <h3>手动上传二维码图片</h3>
+    <div class="manual-input">
+      <input type="file" id="manual-qr-input" accept="image/*" multiple onchange="handleManualQRUpload(event)">
+      <button class="btn btn-secondary" onclick="document.getElementById('manual-qr-input').click()">选择图片</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== Global State ====================
+let fileData = null;
+let fileName = '';
+let chunks = [];
+let qrDataUrls = [];
+let currentPage = 0;
+let previewIndex = 0;
+let autoPlayInterval = null;
+let compressedData = null; // Store compressed or original data
+let useCompression = true;
+const QR_PER_PAGE = 20;
+
+let videoStream = null;
+let videoTrack = null;
+let scanActive = false;
+let scanAnimationId = null;
+let receivedChunks = {};
+let totalChunks = null;
+let receiverFileName = '';
+let receiverCompressed = false;
+let lastScannedData = '';
+let lastScannedTime = 0;
+
+// ==================== Tab Switching ====================
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('panel-send').classList.toggle('active', tab === 'send');
+  document.getElementById('panel-receive').classList.toggle('active', tab === 'receive');
+  if (tab === 'receive') {
+    document.getElementById('camera-container').classList.remove('hidden');
+  } else {
+    stopScanning();
+  }
+}
+
+// ==================== File Size Formatting ====================
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// ==================== Status Messages ====================
+function showStatus(elId, msg, type) {
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.className = 'status-msg ' + type;
+}
+
+function hideStatus(elId) {
+  const el = document.getElementById(elId);
+  el.className = 'status-msg';
+}
+
+// ==================== Sender Logic ====================
+const uploadZone = document.getElementById('upload-zone');
+uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => { uploadZone.classList.remove('dragover'); });
+uploadZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  const files = e.dataTransfer.files;
+  if (files.length > 0) processFile(files[0]);
+});
+
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  if (file.size === 0) {
+    showStatus('send-status', '文件为空', 'error');
+    return;
+  }
+  if (file.size > 500 * 1024 * 1024) {
+    showStatus('send-status', '文件过大 (最大 500MB)，建议使用较小文件', 'error');
+    return;
+  }
+
+  hideStatus('send-status');
+  fileName = file.name;
+  useCompression = document.getElementById('compress-toggle').checked;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    fileData = new Uint8Array(e.target.result);
+    document.getElementById('file-name').textContent = '文件名: ' + fileName;
+    document.getElementById('file-size').textContent = '文件大小: ' + formatSize(fileData.byteLength);
+    updateChunkEstimate();
+    document.getElementById('file-info').style.display = 'block';
+    document.getElementById('btn-generate').disabled = false;
+    showStatus('send-status', '文件已就绪，点击"生成二维码"开始', 'info');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function onCompressToggle() {
+  useCompression = document.getElementById('compress-toggle').checked;
+  if (fileData) updateChunkEstimate();
+}
+
+function updateChunkEstimate() {
+  const chunkSize = parseInt(document.getElementById('chunk-size').value) || 1500;
+  let dataSize = fileData.byteLength;
+  let extraInfo = '';
+  if (useCompression) {
+    try {
+      const compressed = pako.deflate(fileData, { level: 9 });
+      dataSize = compressed.length;
+      const ratio = fileData.byteLength > 0 ? (compressed.length / fileData.byteLength * 100).toFixed(0) : 100;
+      extraInfo = ' (压缩后 ' + formatSize(dataSize) + ', ' + ratio + '%)';
+    } catch (err) {
+      // Compression failed, fallback to uncompressed
+    }
+  }
+  const estimatedChunks = Math.ceil(dataSize / chunkSize);
+  document.getElementById('file-chunks').textContent = '预计分块: ' + estimatedChunks + ' 个二维码' + extraInfo;
+}
+
+function splitIntoChunks(data, chunkSize) {
+  const chunks = [];
+  for (let i = 0; i < data.length; i += chunkSize) {
+    chunks.push(data.slice(i, Math.min(i + chunkSize, data.length)));
+  }
+  return chunks;
+}
+
+function base64Encode(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function addOverlayToQR(dataUrl, index, total) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const text = index + '/' + total;
+      let fontSize = Math.max(14, Math.floor(canvas.width / 12));
+      if (total >= 100){
+        fontSize = Math.max(7, Math.floor(fontSize / 3))
+      }else{
+        fontSize = Math.floor(fontSize * 2 / 3);
+      };
+      ctx.font = 'bold ' + fontSize + 'px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      const metrics = ctx.measureText(text);
+      const textWidth = metrics.width;
+      const textHeight = fontSize;
+      const paddingX = Math.floor(fontSize * 0.2);
+      const paddingY = Math.floor(fontSize * 0.12);
+
+      const bgX = canvas.width / 2 - textWidth / 2 - paddingX;
+      const bgY = canvas.height / 2 - textHeight / 2 - paddingY;
+      const bgW = textWidth + paddingX * 2;
+      const bgH = textHeight + paddingY * 2;
+      const radius = Math.floor(fontSize * 0.15);
+
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.moveTo(bgX + radius, bgY);
+      ctx.lineTo(bgX + bgW - radius, bgY);
+      ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+      ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+      ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+      ctx.lineTo(bgX + radius, bgY + bgH);
+      ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+      ctx.lineTo(bgX, bgY + radius);
+      ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+      ctx.fill();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function generateQRCodes() {
+  if (!fileData) {
+    showStatus('send-status', '请先选择文件', 'error');
+    return;
+  }
+
+  const chunkSize = parseInt(document.getElementById('chunk-size').value) || 1500;
+  const ecLevel = document.getElementById('ec-level').value;
+
+  useCompression = document.getElementById('compress-toggle').checked;
+  compressedData = fileData;
+  let compressInfo = '';
+
+  if (useCompression) {
+    try {
+      compressedData = pako.deflate(fileData, { level: 9 });
+      compressInfo = ' (已压缩 ' + formatSize(fileData.byteLength) + ' → ' + formatSize(compressedData.length) + ')';
+    } catch (err) {
+      compressedData = fileData;
+      useCompression = false;
+      compressInfo = ' (压缩失败，使用原始数据)';
+    }
+  }
+
+  chunks = splitIntoChunks(compressedData, chunkSize);
+  const total = chunks.length;
+
+  document.getElementById('file-chunks').textContent = '分块: ' + total + ' 个二维码' + compressInfo;
+  document.getElementById('btn-generate').disabled = true;
+  document.getElementById('btn-generate').textContent = '生成中...';
+  hideStatus('send-status');
+
+  qrDataUrls = [];
+  const gallery = document.getElementById('qr-gallery');
+  gallery.innerHTML = '';
+
+  const typeNumber = 0; // auto
+
+  for (let i = 0; i < total; i++) {
+    const payload = JSON.stringify({
+      i: i,
+      n: total,
+      f: fileName,
+      c: useCompression ? 1 : 0,
+      d: base64Encode(chunks[i])
+    });
+
+    try {
+      const qr = qrcode(typeNumber, ecLevel);
+      qr.addData(payload);
+      qr.make();
+      const rawDataUrl = qr.createDataURL(6, 2);
+      const overlayDataUrl = await addOverlayToQR(rawDataUrl, i + 1, total);
+      qrDataUrls.push(overlayDataUrl);
+
+      onQRGenerated(i, total);
+    } catch (err) {
+      showStatus('send-status', '第 ' + (i + 1) + ' 个二维码生成失败: ' + err.message + '。尝试减小每块大小或降低纠错级别', 'error');
+      document.getElementById('btn-generate').disabled = false;
+      document.getElementById('btn-generate').textContent = '生成二维码';
+      return;
+    }
+
+    // Update progress periodically
+    if ((i + 1) % 10 === 0 || i === total - 1) {
+      document.getElementById('btn-generate').textContent = '生成中... ' + (i + 1) + '/' + total;
+    }
+  }
+
+  document.getElementById('btn-generate').textContent = '重新生成';
+  document.getElementById('btn-generate').disabled = false;
+  document.getElementById('btn-download-all').classList.remove('hidden');
+  document.getElementById('btn-reset').classList.remove('hidden');
+  document.getElementById('btn-preview').classList.remove('hidden');
+
+  currentPage = 0;
+  renderQRCodes();
+
+  const chunkSizeUsed = parseInt(document.getElementById('chunk-size').value) || 1500;
+  const statusMsg = '已生成 ' + total + ' 个二维码 (每块 ' + chunkSizeUsed + ' 字节)';
+  showStatus('send-status', statusMsg + compressInfo, 'success');
+}
+
+function renderQRCodes() {
+  const gallery = document.getElementById('qr-gallery');
+  gallery.innerHTML = '';
+
+  const total = qrDataUrls.length;
+  const totalPages = Math.ceil(total / QR_PER_PAGE);
+  const start = currentPage * QR_PER_PAGE;
+  const end = Math.min(start + QR_PER_PAGE, total);
+
+  for (let i = start; i < end; i++) {
+    const card = document.createElement('div');
+    card.className = 'qr-card';
+    card.innerHTML = `
+      <img src="${qrDataUrls[i]}" alt="QR Chunk ${i + 1}" loading="lazy" onclick="openPreview(${i})" style="cursor:pointer" title="点击放大预览">
+      <div class="index">第 ${i + 1}/${total} 块</div>
+      <button class="dl-btn" onclick="downloadSingleQR(${i})">下载此码</button>
+    `;
+    gallery.appendChild(card);
+  }
+
+  // Pagination controls
+  const pagination = document.getElementById('pagination');
+  if (total > QR_PER_PAGE) {
+    pagination.classList.remove('hidden');
+    document.getElementById('page-info').textContent = `第 ${currentPage + 1}/${totalPages} 页 (共 ${total} 个)`;
+    document.getElementById('btn-prev').disabled = currentPage === 0;
+    document.getElementById('btn-next').disabled = currentPage >= totalPages - 1;
+  } else {
+    pagination.classList.add('hidden');
+  }
+}
+
+function onQRGenerated(index, total) {
+  const itemPage = Math.floor(index / QR_PER_PAGE);
+
+  if (itemPage !== currentPage) {
+    currentPage = itemPage;
+    renderQRCodes();
+  } else {
+    const gallery = document.getElementById('qr-gallery');
+    const card = document.createElement('div');
+    card.className = 'qr-card';
+    card.innerHTML = '<img src="' + qrDataUrls[index] + '" alt="QR Chunk ' + (index + 1) + '" loading="lazy" onclick="openPreview(' + index + ')" style="cursor:pointer" title="点击放大预览"><div class="index">第 ' + (index + 1) + '/' + total + ' 块</div><button class="dl-btn" onclick="downloadSingleQR(' + index + ')">下载此码</button>';
+    gallery.appendChild(card);
+
+    const totalItems = qrDataUrls.length;
+    const totalPages = Math.ceil(totalItems / QR_PER_PAGE);
+    if (totalPages > 1) {
+      document.getElementById('pagination').classList.remove('hidden');
+      document.getElementById('page-info').textContent = '第 ' + (currentPage + 1) + '/' + totalPages + ' 页 (共 ' + totalItems + ' 个)';
+      document.getElementById('btn-prev').disabled = currentPage === 0;
+      document.getElementById('btn-next').disabled = currentPage >= totalPages - 1;
+    }
+  }
+}
+
+function changePage(delta) {
+  const totalPages = Math.ceil(qrDataUrls.length / QR_PER_PAGE);
+  const newPage = currentPage + delta;
+  if (newPage >= 0 && newPage < totalPages) {
+    currentPage = newPage;
+    renderQRCodes();
+  }
+}
+
+function downloadSingleQR(index) {
+  const a = document.createElement('a');
+  a.href = qrDataUrls[index];
+  a.download = `${fileName}_chunk_${index + 1}_of_${qrDataUrls.length}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ==================== Preview Mode ====================
+function openPreview(startIndex) {
+  if (qrDataUrls.length === 0) return;
+  stopAutoPlay();
+  previewIndex = (startIndex !== undefined) ? startIndex : previewIndex;
+  renderPreview();
+  document.getElementById('preview-overlay').classList.remove('hidden');
+}
+
+function closePreview() {
+  stopAutoPlay();
+  document.getElementById('preview-overlay').classList.add('hidden');
+}
+
+function navigatePreview(delta) {
+  stopAutoPlay();
+  const newIndex = previewIndex + delta;
+  if (newIndex >= 0 && newIndex < qrDataUrls.length) {
+    previewIndex = newIndex;
+    renderPreview();
+  }
+}
+
+function renderPreview() {
+  document.getElementById('preview-img').src = qrDataUrls[previewIndex];
+  document.getElementById('preview-info').textContent = fileName + ' - 第 ' + (previewIndex + 1) + '/' + qrDataUrls.length + ' 块';
+  document.getElementById('preview-index').textContent = (previewIndex + 1) + ' / ' + qrDataUrls.length;
+  document.getElementById('prev-preview-btn').disabled = previewIndex === 0;
+  document.getElementById('next-preview-btn').disabled = previewIndex >= qrDataUrls.length - 1;
+}
+
+function toggleAutoPlay() {
+  if (autoPlayInterval) {
+    stopAutoPlay();
+  } else {
+    startAutoPlay();
+  }
+}
+
+function startAutoPlay() {
+  if (autoPlayInterval) return;
+  document.getElementById('auto-play-btn').textContent = '⏸ 暂停';
+  document.getElementById('auto-play-btn').classList.add('playing');
+  const speed = getPreviewSpeed();
+  autoPlayInterval = setInterval(() => {
+    if (previewIndex < qrDataUrls.length - 1) {
+      previewIndex++;
+      renderPreview();
+    } else {
+      stopAutoPlay();
+    }
+    }, speed);
+}
+
+function stopAutoPlay() {
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+  }
+  document.getElementById('auto-play-btn').textContent = '▶ 自动';
+  document.getElementById('auto-play-btn').classList.remove('playing');
+}
+
+function getPreviewSpeed() {
+  const active = document.querySelector('.speed-selector .active');
+  return active ? parseInt(active.dataset.speed) : 600;
+}
+
+function setPreviewSpeed(btn) {
+  document.querySelectorAll('.speed-selector button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (autoPlayInterval) {
+    stopAutoPlay();
+    startAutoPlay();
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  const overlay = document.getElementById('preview-overlay');
+  if (overlay.classList.contains('hidden')) return;
+  if (e.key === 'Escape') { closePreview(); return; }
+  if (e.key === 'ArrowLeft') { navigatePreview(-1); return; }
+  if (e.key === 'ArrowRight') { navigatePreview(1); return; }
+  if (e.key === ' ') { e.preventDefault(); toggleAutoPlay(); }
+});
+
+async function downloadAllQR() {
+  showStatus('send-status', '准备下载中...', 'info');
+  for (let i = 0; i < qrDataUrls.length; i++) {
+    await new Promise((resolve) => {
+      setTimeout(() => {
+        const a = document.createElement('a');
+        a.href = qrDataUrls[i];
+        a.download = `${fileName}_chunk_${String(i + 1).padStart(4, '0')}_of_${qrDataUrls.length}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        resolve();
+      }, 100);
+    });
+  }
+  showStatus('send-status', '已触发 ' + qrDataUrls.length + ' 个二维码下载 (请允许浏览器多次下载)', 'success');
+}
+
+function resetSender() {
+  fileData = null;
+  fileName = '';
+  chunks = [];
+  qrDataUrls = [];
+  compressedData = null;
+  currentPage = 0;
+  document.getElementById('file-info').style.display = 'none';
+  document.getElementById('qr-gallery').innerHTML = '';
+  document.getElementById('pagination').classList.add('hidden');
+  document.getElementById('btn-generate').disabled = true;
+  document.getElementById('btn-generate').textContent = '生成二维码';
+  document.getElementById('btn-download-all').classList.add('hidden');
+  document.getElementById('btn-reset').classList.add('hidden');
+  document.getElementById('btn-preview').classList.add('hidden');
+  document.getElementById('preview-overlay').classList.add('hidden');
+  stopAutoPlay();
+  previewIndex = 0;
+  document.getElementById('file-input').value = '';
+  hideStatus('send-status');
+}
+
+// ==================== Receiver Logic ====================
+function base64Decode(str) {
+  const binary = atob(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function startScanning() {
+  if (scanActive) return;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    videoStream = stream;
+    videoTrack = stream.getVideoTracks()[0];
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+
+    // Setup zoom control
+    initZoomControl();
+
+    scanActive = true;
+    document.getElementById('btn-start-scan').classList.add('hidden');
+    document.getElementById('btn-stop-scan').classList.remove('hidden');
+    document.getElementById('camera-container').classList.remove('hidden');
+    hideStatus('receive-status');
+    scanLoop();
+  } catch (err) {
+    showStatus('receive-status', '无法访问摄像头: ' + err.message, 'error');
+  }
+}
+
+function stopScanning() {
+  scanActive = false;
+  if (scanAnimationId) {
+    cancelAnimationFrame(scanAnimationId);
+    scanAnimationId = null;
+  }
+  if (videoStream) {
+    videoStream.getTracks().forEach(t => t.stop());
+    videoStream = null;
+  }
+  videoTrack = null;
+  document.getElementById('video').srcObject = null;
+  document.getElementById('btn-start-scan').classList.remove('hidden');
+  document.getElementById('btn-stop-scan').classList.add('hidden');
+  document.getElementById('zoom-control').classList.add('hidden');
+}
+
+// ==================== Zoom Control ====================
+function initZoomControl() {
+  if (!videoTrack) return;
+
+  const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : null;
+  const zoomCtrl = document.getElementById('zoom-control');
+
+  if (capabilities && capabilities.zoom) {
+    const slider = document.getElementById('zoom-slider');
+    const currentSettings = videoTrack.getSettings();
+    const currentZ = currentSettings.zoom || capabilities.zoom.min || 1;
+
+    slider.min = capabilities.zoom.min || 1;
+    slider.max = capabilities.zoom.max || 5;
+    slider.step = capabilities.zoom.step || 0.1;
+    slider.value = currentZ;
+    document.getElementById('zoom-value').textContent = currentZ.toFixed(1) + 'x';
+    zoomCtrl.classList.remove('hidden');
+  } else {
+    zoomCtrl.classList.add('hidden');
+  }
+}
+
+function onZoomSlider(value) {
+  applyZoom(parseFloat(value));
+}
+
+function adjustZoom(delta) {
+  if (!videoTrack) return;
+  const slider = document.getElementById('zoom-slider');
+  const newVal = Math.min(parseFloat(slider.max), Math.max(parseFloat(slider.min), parseFloat(slider.value) + delta));
+  slider.value = newVal;
+  applyZoom(newVal);
+}
+
+function applyZoom(value) {
+  if (!videoTrack) return;
+  videoTrack.applyConstraints({ advanced: [{ zoom: value }] })
+    .then(() => {
+      document.getElementById('zoom-value').textContent = value.toFixed(1) + 'x';
+    })
+    .catch(() => {});
+}
+
+function resetZoom() {
+  if (!videoTrack) return;
+  const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : null;
+  if (capabilities && capabilities.zoom) {
+    const minZoom = capabilities.zoom.min || 1;
+    document.getElementById('zoom-slider').value = minZoom;
+    applyZoom(minZoom);
+  }
+}
+
+function scanLoop() {
+  if (!scanActive) return;
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('scan-canvas');
+  const ctx = canvas.getContext('2d');
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, canvas.width, canvas.height, {
+      inversionAttempts: 'dontInvert'
+    });
+
+    if (code && code.data) {
+      // Deduplicate: avoid processing the same QR code multiple times in quick succession
+      const now = Date.now();
+      if (code.data !== lastScannedData || now - lastScannedTime > 2000) {
+        lastScannedData = code.data;
+        lastScannedTime = now;
+        processScannedData(code.data);
+      }
+    }
+  }
+
+  scanAnimationId = requestAnimationFrame(scanLoop);
+}
+
+function processScannedData(data) {
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (e) {
+    return; // Not our format
+  }
+
+  if (typeof parsed.i !== 'number' || typeof parsed.n !== 'number' ||
+      typeof parsed.f !== 'string' || typeof parsed.d !== 'string') {
+    return; // Not our format
+  }
+
+  const { i: chunkIndex, n: chunkTotal, f: filename, d: base64Data, c: compressed } = parsed;
+
+  // Initialize or validate
+  if (totalChunks === null) {
+    totalChunks = chunkTotal;
+    receiverFileName = filename;
+    receiverCompressed = (compressed === 1);
+  } else if (chunkTotal !== totalChunks) {
+    // Different file, ignore or prompt
+    return;
+  }
+
+  // Skip if already received
+  if (receivedChunks[chunkIndex] !== undefined) {
+    return;
+  }
+
+  try {
+    const chunkData = base64Decode(base64Data);
+    receivedChunks[chunkIndex] = chunkData;
+  } catch (e) {
+    showStatus('receive-status', '解析第 ' + (chunkIndex + 1) + ' 块数据失败', 'error');
+    return;
+  }
+
+  // Flash effect
+  const flash = document.getElementById('scan-flash');
+  flash.classList.add('active');
+  setTimeout(() => flash.classList.remove('active'), 150);
+
+  // Update UI
+  updateReceiverProgress();
+}
+
+function updateReceiverProgress() {
+  const received = Object.keys(receivedChunks).length;
+
+  // Update chunk dots
+  const chunkList = document.getElementById('chunk-list');
+  chunkList.innerHTML = '';
+  for (let i = 0; i < totalChunks; i++) {
+    const dot = document.createElement('div');
+    const isReceived = receivedChunks[i] !== undefined;
+    dot.className = 'chunk-dot' + (isReceived ? ' received' : '');
+    dot.textContent = i + 1;
+    dot.title = '块 ' + (i + 1) + (isReceived ? ' - ' + formatSize(receivedChunks[i].length) : ' - 未接收');
+    dot.style.cursor = 'pointer';
+    dot.addEventListener('click', function(j, received) {
+      return function() {
+        const msg = received ? '第 ' + (j + 1) + ' 块 - 已接收 (' + formatSize(receivedChunks[j].length) + ')' : '第 ' + (j + 1) + ' 块 - 未接收';
+        showStatus('receive-status', msg, received ? 'success' : 'info');
+      };
+    }(i, isReceived));
+    chunkList.appendChild(dot);
+  }
+
+  // Update progress bar
+  const pct = totalChunks > 0 ? (received / totalChunks * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent =
+    `已接收 ${received}/${totalChunks} 块 (${pct.toFixed(0)}%) - 文件: ${receiverFileName || '未知'}`;
+
+  // Check if complete
+  if (received === totalChunks && totalChunks > 0) {
+    onAllChunksReceived();
+  }
+}
+
+function onAllChunksReceived() {
+  stopScanning();
+
+  // Reconstruct file
+  const fileParts = [];
+  for (let i = 0; i < totalChunks; i++) {
+    if (receivedChunks[i] === undefined) {
+      showStatus('receive-status', '缺少第 ' + (i + 1) + ' 块，无法还原文件', 'error');
+      return;
+    }
+    fileParts.push(receivedChunks[i]);
+  }
+
+  // Calculate total length
+  let totalLength = 0;
+  for (const part of fileParts) {
+    totalLength += part.length;
+  }
+
+  // Concatenate
+  let reconstructed = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const part of fileParts) {
+    reconstructed.set(part, offset);
+    offset += part.length;
+  }
+
+  // Decompress if needed
+  let finalFile = reconstructed;
+  let decompressNote = '';
+  if (receiverCompressed) {
+    try {
+      finalFile = pako.inflate(reconstructed);
+      decompressNote = ' (已解压 ' + formatSize(reconstructed.length) + ' → ' + formatSize(finalFile.length) + ')';
+    } catch (err) {
+      showStatus('receive-status', '解压失败: ' + err.message, 'error');
+      return;
+    }
+  }
+
+  // Store for download
+  window._reconstructedFile = finalFile;
+  window._reconstructedFileName = receiverFileName;
+
+  document.getElementById('recv-filename').textContent = '文件: ' + receiverFileName;
+  document.getElementById('recv-filesize').textContent = '大小: ' + formatSize(finalFile.length) + decompressNote;
+  document.getElementById('reconstructed').style.display = 'block';
+  showStatus('receive-status', '所有 ' + totalChunks + ' 块已接收，文件已还原!' + decompressNote, 'success');
+}
+
+function downloadReconstructed() {
+  if (!window._reconstructedFile || !window._reconstructedFileName) return;
+
+  const blob = new Blob([window._reconstructedFile]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = window._reconstructedFileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ==================== Manual QR Upload ====================
+function handleManualQRUpload(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+
+  Array.from(files).forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, canvas.width, canvas.height);
+        if (code && code.data) {
+          processScannedData(code.data);
+        } else {
+          showStatus('receive-status', '无法从 "' + file.name + '" 中识别二维码', 'error');
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ==================== Initialize ====================
+function resetReceiver() {
+  receivedChunks = {};
+  totalChunks = null;
+  receiverFileName = '';
+  receiverCompressed = false;
+  lastScannedData = '';
+  lastScannedTime = 0;
+  window._reconstructedFile = null;
+  window._reconstructedFileName = null;
+  document.getElementById('progress-bar').style.width = '0';
+  document.getElementById('progress-text').textContent = '等待扫描...';
+  document.getElementById('chunk-list').innerHTML = '';
+  document.getElementById('reconstructed').style.display = 'none';
+  document.getElementById('manual-qr-input').value = '';
+  hideStatus('receive-status');
+  stopScanning();
+}
+
+// Expose resetReceiver globally
+window.resetReceiver = resetReceiver;
+</script>
+</body>
+</html>
